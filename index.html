@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Comparador de Investimentos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.5/dist/chart.umd.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero__content">
+      <h1>Comparador inteligente de investimentos</h1>
+      <p>Selecione quaisquer ativos disponíveis na <strong>brapi</strong> e visualize métricas completas de performance, risco e diversificação dos últimos cinco anos.</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>1. Monte sua carteira</h2>
+      <p class="card__subtitle">Adicione ações, FIIs, renda fixa, ETFs/BDRs e cripto/alternativos. Informe o código negociado (ticker) conforme listado na B3 ou no provedor.</p>
+      <form id="asset-form" class="form">
+        <div class="form__row">
+          <label for="api-token">Token da brapi (opcional)</label>
+          <input id="api-token" type="text" placeholder="Insira seu token para evitar limites de 403" />
+        </div>
+        <div id="asset-list" class="asset-list"></div>
+        <div class="form__actions">
+          <button type="button" id="add-asset" class="btn btn--secondary">Adicionar ativo</button>
+          <button type="submit" class="btn btn--primary">Comparar carteira</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="results" class="card card--hidden">
+      <h2>2. Resultado consolidado</h2>
+      <div id="results-summary" class="results-summary"></div>
+
+      <div class="results-grid">
+        <article class="panel">
+          <header class="panel__header">
+            <h3>Rentabilidade acumulada (últimos 5 anos)</h3>
+            <p>Escala base 100 com dados mensais.</p>
+          </header>
+          <canvas id="returns-chart" height="220"></canvas>
+        </article>
+
+        <article class="panel">
+          <header class="panel__header">
+            <h3>Indicadores por ativo</h3>
+            <p>Dados extraídos da brapi. Valores ausentes serão exibidos como N/D.</p>
+          </header>
+          <div class="table-wrapper">
+            <table id="metrics-table" class="table"></table>
+          </div>
+        </article>
+
+        <article class="panel">
+          <header class="panel__header">
+            <h3>Rentabilidade mensal (últimos 60 meses)</h3>
+            <p>Variação percentual mês a mês.</p>
+          </header>
+          <div class="table-wrapper table-wrapper--wide">
+            <table id="monthly-table" class="table table--dense"></table>
+          </div>
+        </article>
+
+        <article class="panel">
+          <header class="panel__header">
+            <h3>Proventos e fluxos (5 anos)</h3>
+            <p>Dividendos, juros sobre capital e rendimentos informados.</p>
+          </header>
+          <div class="table-wrapper">
+            <table id="dividends-table" class="table table--dense"></table>
+          </div>
+        </article>
+
+        <article class="panel">
+          <header class="panel__header">
+            <h3>Gestão de risco e liquidez</h3>
+          </header>
+          <ul class="checklist">
+            <li>✅ Mantenha reserva de emergência: 6 a 12 meses de despesas em ativos de alta liquidez.</li>
+            <li>✅ Defina gatilhos de rebalanceamento ou stop-loss mental (ex.: se renda variável &gt; 70% → rebalancear).</li>
+            <li>✅ Avalie a liquidez de cada ativo — alguns podem demorar dias ou meses para converter em caixa.</li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <header class="panel__header">
+            <h3>Proteção cambial e cenário macro</h3>
+          </header>
+          <ul class="checklist">
+            <li>🌍 Considere manter 10–20% do portfólio dolarizado (ETFs internacionais, BDRs, ouro).</li>
+            <li>🌍 O real é historicamente volátil; ativos atrelados ao exterior ajudam a suavizar crises locais.</li>
+            <li>🌍 Ajuste a alocação aos ciclos de juros, inflação, fiscal e política.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <template id="asset-row-template">
+    <div class="form__row asset-row">
+      <div class="asset-row__ticker">
+        <label>Ticker</label>
+        <input type="text" placeholder="PETR4, MXRF11, TESOURO PREFIXADO" required />
+      </div>
+      <div class="asset-row__type">
+        <label>Classe</label>
+        <select>
+          <option value="acoes">Ação</option>
+          <option value="fiis">FII</option>
+          <option value="renda_fixa">Renda fixa</option>
+          <option value="etf_bdr">ETF / BDR</option>
+          <option value="cripto">Cripto / alternativos</option>
+        </select>
+      </div>
+      <button type="button" class="btn btn--ghost asset-row__remove" aria-label="Remover ativo">&times;</button>
+    </div>
+  </template>
+
+  <footer class="footer">
+    <p>Desenvolvido para estudos financeiros com dados públicos da brapi.</p>
+  </footer>
+</body>
+</html>
