@@ -46,19 +46,20 @@
               <h3>Caixa</h3>
               <p>Movimentações diárias do caixa físico.</p>
             </div>
-            <form class="card-form">
+            <form class="card-form" data-endpoint="/api/summary">
               <label>
                 Saldo inicial
-                <input type="number" placeholder="R$ 0,00" />
+                <input type="number" name="cash" placeholder="R$ 0,00" />
               </label>
               <label>
                 Reforço de caixa
-                <input type="number" placeholder="R$ 0,00" />
+                <input type="number" name="entries" placeholder="R$ 0,00" />
               </label>
               <label>
                 Observações
                 <textarea rows="3" placeholder="Detalhes rápidos"></textarea>
               </label>
+              <button class="secondary-button" type="submit">Inserir caixa</button>
             </form>
           </article>
 
@@ -67,19 +68,20 @@
               <h3>Entradas</h3>
               <p>Receitas por segmento e por categoria.</p>
             </div>
-            <form class="card-form">
+            <form class="card-form" data-endpoint="/api/projections">
               <label>
                 Segmento
-                <input type="text" placeholder="Ex: Varejo, Serviços" />
+                <input type="text" name="segment" placeholder="Ex: Varejo, Serviços" />
               </label>
               <label>
                 Valor recebido
-                <input type="number" placeholder="R$ 0,00" />
+                <input type="number" name="current_revenue" placeholder="R$ 0,00" />
               </label>
               <label>
                 Data de recebimento
                 <input type="date" />
               </label>
+              <button class="secondary-button" type="submit">Inserir entrada</button>
             </form>
           </article>
 
@@ -88,14 +90,14 @@
               <h3>Saídas</h3>
               <p>Pagamentos previstos e realizados.</p>
             </div>
-            <form class="card-form">
+            <form class="card-form" data-endpoint="/api/summary">
               <label>
                 Centro de custo
                 <input type="text" placeholder="Ex: Marketing, Operações" />
               </label>
               <label>
                 Valor pago
-                <input type="number" placeholder="R$ 0,00" />
+                <input type="number" name="exits" placeholder="R$ 0,00" />
               </label>
               <label>
                 Status
@@ -105,6 +107,7 @@
                   <option>Pendente</option>
                 </select>
               </label>
+              <button class="secondary-button" type="submit">Inserir saída</button>
             </form>
           </article>
 
@@ -113,21 +116,51 @@
               <h3>Ativos &amp; Passivos</h3>
               <p>Controle patrimonial consolidado.</p>
             </div>
-            <form class="card-form">
+            <form class="card-form" data-endpoint="/api/summary">
               <label>
                 Ativos totais
-                <input type="number" placeholder="R$ 0,00" />
+                <input type="number" name="assets" placeholder="R$ 0,00" />
               </label>
               <label>
                 Passivos totais
-                <input type="number" placeholder="R$ 0,00" />
+                <input type="number" name="liabilities" placeholder="R$ 0,00" />
               </label>
               <label>
                 Atualização
                 <input type="date" />
               </label>
+              <button class="secondary-button" type="submit">Inserir balanço</button>
             </form>
           </article>
+        </section>
+
+        <section class="tracking">
+          <div class="tracking-header">
+            <h2>Acompanhamento de performance</h2>
+            <p>Monitore entradas, saídas e impostos por período com visibilidade clara.</p>
+          </div>
+          <div class="tracking-tabs" role="tablist">
+            <button class="tab active" data-range="weekly" role="tab">Semanal</button>
+            <button class="tab" data-range="monthly" role="tab">Mensal</button>
+            <button class="tab" data-range="yearly" role="tab">Anual</button>
+          </div>
+          <div class="tracking-panel">
+            <div class="tracking-card">
+              <span>Entrada projetada</span>
+              <strong>R$ 82.400</strong>
+              <small id="tracking-label">Últimos 7 dias</small>
+            </div>
+            <div class="tracking-card">
+              <span>Saída projetada</span>
+              <strong>R$ 46.150</strong>
+              <small>Controle em tempo real</small>
+            </div>
+            <div class="tracking-card">
+              <span>Impostos estimados</span>
+              <strong>R$ 9.870</strong>
+              <small>Regime atual</small>
+            </div>
+          </div>
         </section>
 
         <section class="insights">
@@ -158,5 +191,6 @@
         </section>
       </main>
     </div>
+    <script src="app.js"></script>
   </body>
 </html>
