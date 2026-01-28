@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import count
 from typing import Any
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 
 app = Flask(__name__)
 
@@ -35,6 +36,27 @@ class SummaryInput:
     exits: float
     assets: float
     liabilities: float
+
+
+@dataclass(frozen=True)
+class EntryInput:
+    kind: str
+    type: str
+    description: str
+    amount: float
+    date: str | None
+    service: str | None
+    product: str | None
+
+
+@dataclass(frozen=True)
+class InventoryInput:
+    name: str
+    sku: str | None
+    category: str | None
+    quantity: int
+    cost: float
+    price: float
 
 
 def parse_float(value: Any, field: str) -> float:
@@ -97,6 +119,62 @@ def parse_summary_input(payload: dict[str, Any]) -> SummaryInput:
     )
 
 
+def parse_entry_input(payload: dict[str, Any]) -> EntryInput:
+    kind = str(payload.get("kind", "")).lower()
+    if kind not in {"income", "expense"}:
+        raise ValidationError("Campo 'kind' precisa ser income ou expense.")
+    entry_type = str(payload.get("type", "")).lower()
+    if entry_type not in {"service", "product"}:
+        raise ValidationError("Campo 'type' precisa ser service ou product.")
+    description = str(payload.get("description", "")).strip()
+    amount = parse_float(payload.get("amount"), "amount")
+    if amount < 0:
+        raise ValidationError("Campo 'amount' precisa ser positivo.")
+    date = payload.get("date")
+    if date is not None:
+        date = str(date)
+    service = payload.get("service")
+    if service is not None:
+        service = str(service).strip() or None
+    product = payload.get("product")
+    if product is not None:
+        product = str(product).strip() or None
+    return EntryInput(
+        kind=kind,
+        type=entry_type,
+        description=description,
+        amount=amount,
+        date=date,
+        service=service,
+        product=product,
+    )
+
+
+def parse_inventory_input(payload: dict[str, Any]) -> InventoryInput:
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        raise ValidationError("Campo 'name' é obrigatório.")
+    sku = payload.get("sku")
+    if sku is not None:
+        sku = str(sku).strip() or None
+    category = payload.get("category")
+    if category is not None:
+        category = str(category).strip() or None
+    quantity = parse_int(payload.get("quantity", 0), "quantity")
+    if quantity < 0:
+        raise ValidationError("Campo 'quantity' precisa ser positivo.")
+    cost = parse_float(payload.get("cost", 0), "cost")
+    price = parse_float(payload.get("price", 0), "price")
+    return InventoryInput(
+        name=name,
+        sku=sku,
+        category=category,
+        quantity=quantity,
+        cost=cost,
+        price=price,
+    )
+
+
 def project_values(value: float, growth_rate: float, months: int) -> list[float]:
     projections = []
     current = value
@@ -150,6 +228,85 @@ def estimate_tax(input_data: TaxInput) -> dict[str, Any]:
     }
 
 
+entry_store: list[dict[str, Any]] = []
+inventory_store: list[dict[str, Any]] = []
+entry_counter = count(1)
+inventory_counter = count(1)
+
+
+def build_compiled_data() -> dict[str, Any]:
+    total_income = sum(item["amount"] for item in entry_store if item["kind"] == "income")
+    total_expense = sum(item["amount"] for item in entry_store if item["kind"] == "expense")
+    net_result = total_income - total_expense
+    margin = 0 if total_income == 0 else round((net_result / total_income) * 100, 2)
+
+    type_map = {"service": "Serviços", "product": "Produtos"}
+    by_type = []
+    for entry_type, label in type_map.items():
+        income = sum(
+            item["amount"]
+            for item in entry_store
+            if item["type"] == entry_type and item["kind"] == "income"
+        )
+        expense = sum(
+            item["amount"]
+            for item in entry_store
+            if item["type"] == entry_type and item["kind"] == "expense"
+        )
+        by_type.append(
+            {
+                "type": entry_type,
+                "type_label": label,
+                "income": round(income, 2),
+                "expense": round(expense, 2),
+            }
+        )
+
+    service_totals: dict[str, float] = {}
+    product_totals: dict[str, float] = {}
+    for item in entry_store:
+        if item["kind"] != "income":
+            continue
+        if item.get("service"):
+            service_totals[item["service"]] = service_totals.get(item["service"], 0) + item[
+                "amount"
+            ]
+        if item.get("product"):
+            product_totals[item["product"]] = product_totals.get(item["product"], 0) + item[
+                "amount"
+            ]
+
+    by_service = sorted(
+        (
+            {"name": name, "total": round(total, 2)}
+            for name, total in service_totals.items()
+        ),
+        key=lambda item: item["total"],
+        reverse=True,
+    )
+    by_product = sorted(
+        (
+            {"name": name, "total": round(total, 2)}
+            for name, total in product_totals.items()
+        ),
+        key=lambda item: item["total"],
+        reverse=True,
+    )
+
+    inventory_value = sum(item["stock_value"] for item in inventory_store)
+
+    return {
+        "total_income": round(total_income, 2),
+        "total_expense": round(total_expense, 2),
+        "net_result": round(net_result, 2),
+        "margin": margin,
+        "by_type": by_type,
+        "by_service": by_service,
+        "by_product": by_product,
+        "inventory_value": round(inventory_value, 2),
+    }
+
+
 @app.errorhandler(ValidationError)
 def handle_validation_error(error: ValidationError):
     return jsonify({"error": str(error)}), 400
@@ -158,6 +315,16 @@ def handle_validation_error(error: ValidationError):
 @app.route("/health", methods=["GET"])
 def health() -> tuple[Any, int]:
     return jsonify({"status": "ok"}), 200
+
+
+@app.route("/", methods=["GET"])
+def index() -> Any:
+    return send_from_directory(".", "index.html")
+
+
+@app.route("/<path:filename>", methods=["GET"])
+def static_files(filename: str) -> Any:
+    return send_from_directory(".", filename)
 
 
 @app.route("/api/projections", methods=["POST"])
@@ -207,6 +374,54 @@ def tax_estimate() -> tuple[Any, int]:
     payload = request.get_json(silent=True) or {}
     input_data = parse_tax_input(payload)
     return jsonify(estimate_tax(input_data)), 200
+
+
+@app.route("/api/entries", methods=["GET", "POST"])
+def entries() -> tuple[Any, int]:
+    if request.method == "POST":
+        payload = request.get_json(silent=True) or {}
+        input_data = parse_entry_input(payload)
+        entry_id = next(entry_counter)
+        entry = {
+            "id": entry_id,
+            "kind": input_data.kind,
+            "type": input_data.type,
+            "description": input_data.description,
+            "amount": round(input_data.amount, 2),
+            "date": input_data.date,
+            "service": input_data.service,
+            "product": input_data.product,
+        }
+        entry_store.insert(0, entry)
+        return jsonify(entry), 201
+    return jsonify({"entries": entry_store}), 200
+
+
+@app.route("/api/inventory", methods=["GET", "POST"])
+def inventory() -> tuple[Any, int]:
+    if request.method == "POST":
+        payload = request.get_json(silent=True) or {}
+        input_data = parse_inventory_input(payload)
+        item_id = next(inventory_counter)
+        stock_value = input_data.quantity * input_data.cost
+        item = {
+            "id": item_id,
+            "name": input_data.name,
+            "sku": input_data.sku,
+            "category": input_data.category,
+            "quantity": input_data.quantity,
+            "cost": round(input_data.cost, 2),
+            "price": round(input_data.price, 2),
+            "stock_value": round(stock_value, 2),
+        }
+        inventory_store.insert(0, item)
+        return jsonify(item), 201
+    return jsonify({"items": inventory_store}), 200
+
+
+@app.route("/api/compiled", methods=["GET"])
+def compiled() -> tuple[Any, int]:
+    return jsonify(build_compiled_data()), 200
 
 
 @app.route("/api/summary", methods=["POST"])
