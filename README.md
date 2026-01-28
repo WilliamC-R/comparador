@@ -5,6 +5,7 @@ Web app para controle de finanças e demonstrativo financeiro com abas de entrad
 ## Requisitos
 
 - Python 3.10+
+- SQLite (já incluso no Python)
 
 ## Instalação
 
@@ -20,7 +21,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-O backend sobe em `http://localhost:8000`.
+O backend sobe em `http://localhost:8000`. Os dados são persistidos em `data.db`.
 
 ## Executar o frontend
 

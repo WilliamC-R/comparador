@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from itertools import count
+import sqlite3
 from typing import Any
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, g, jsonify, request, send_from_directory
 
 app = Flask(__name__)
+DATABASE = "data.db"
 
 
 class ValidationError(ValueError):
@@ -228,31 +229,79 @@ def estimate_tax(input_data: TaxInput) -> dict[str, Any]:
     }
 
 
-entry_store: list[dict[str, Any]] = []
-inventory_store: list[dict[str, Any]] = []
-entry_counter = count(1)
-inventory_counter = count(1)
+def get_db() -> sqlite3.Connection:
+    if "db" not in g:
+        g.db = sqlite3.connect(DATABASE)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exception: Exception | None) -> None:
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
+
+
+def init_db() -> None:
+    db = sqlite3.connect(DATABASE)
+    cursor = db.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            amount REAL NOT NULL,
+            date TEXT,
+            service TEXT,
+            product TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            sku TEXT,
+            category TEXT,
+            quantity INTEGER NOT NULL,
+            cost REAL NOT NULL,
+            price REAL NOT NULL
+        )
+        """
+    )
+    db.commit()
+    db.close()
+
+
+init_db()
 
 
 def build_compiled_data() -> dict[str, Any]:
-    total_income = sum(item["amount"] for item in entry_store if item["kind"] == "income")
-    total_expense = sum(item["amount"] for item in entry_store if item["kind"] == "expense")
+    db = get_db()
+    total_income = db.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM entries WHERE kind = 'income'"
+    ).fetchone()[0]
+    total_expense = db.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM entries WHERE kind = 'expense'"
+    ).fetchone()[0]
     net_result = total_income - total_expense
     margin = 0 if total_income == 0 else round((net_result / total_income) * 100, 2)
 
     type_map = {"service": "Serviços", "product": "Produtos"}
     by_type = []
     for entry_type, label in type_map.items():
-        income = sum(
-            item["amount"]
-            for item in entry_store
-            if item["type"] == entry_type and item["kind"] == "income"
-        )
-        expense = sum(
-            item["amount"]
-            for item in entry_store
-            if item["type"] == entry_type and item["kind"] == "expense"
-        )
+        income = db.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM entries WHERE type = ? AND kind = 'income'",
+            (entry_type,),
+        ).fetchone()[0]
+        expense = db.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM entries WHERE type = ? AND kind = 'expense'",
+            (entry_type,),
+        ).fetchone()[0]
         by_type.append(
             {
                 "type": entry_type,
@@ -262,38 +311,34 @@ def build_compiled_data() -> dict[str, Any]:
             }
         )
 
-    service_totals: dict[str, float] = {}
-    product_totals: dict[str, float] = {}
-    for item in entry_store:
-        if item["kind"] != "income":
-            continue
-        if item.get("service"):
-            service_totals[item["service"]] = service_totals.get(item["service"], 0) + item[
-                "amount"
-            ]
-        if item.get("product"):
-            product_totals[item["product"]] = product_totals.get(item["product"], 0) + item[
-                "amount"
-            ]
+    by_service = [
+        {"name": row["service"], "total": round(row["total"], 2)}
+        for row in db.execute(
+            """
+            SELECT service, SUM(amount) AS total
+            FROM entries
+            WHERE kind = 'income' AND service IS NOT NULL AND service != ''
+            GROUP BY service
+            ORDER BY total DESC
+            """
+        ).fetchall()
+    ]
+    by_product = [
+        {"name": row["product"], "total": round(row["total"], 2)}
+        for row in db.execute(
+            """
+            SELECT product, SUM(amount) AS total
+            FROM entries
+            WHERE kind = 'income' AND product IS NOT NULL AND product != ''
+            GROUP BY product
+            ORDER BY total DESC
+            """
+        ).fetchall()
+    ]
 
-    by_service = sorted(
-        (
-            {"name": name, "total": round(total, 2)}
-            for name, total in service_totals.items()
-        ),
-        key=lambda item: item["total"],
-        reverse=True,
-    )
-    by_product = sorted(
-        (
-            {"name": name, "total": round(total, 2)}
-            for name, total in product_totals.items()
-        ),
-        key=lambda item: item["total"],
-        reverse=True,
-    )
-
-    inventory_value = sum(item["stock_value"] for item in inventory_store)
+    inventory_value = db.execute(
+        "SELECT COALESCE(SUM(quantity * cost), 0) FROM inventory"
+    ).fetchone()[0]
 
     return {
         "total_income": round(total_income, 2),
@@ -381,9 +426,25 @@ def entries() -> tuple[Any, int]:
     if request.method == "POST":
         payload = request.get_json(silent=True) or {}
         input_data = parse_entry_input(payload)
-        entry_id = next(entry_counter)
+        db = get_db()
+        cursor = db.execute(
+            """
+            INSERT INTO entries (kind, type, description, amount, date, service, product)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                input_data.kind,
+                input_data.type,
+                input_data.description,
+                round(input_data.amount, 2),
+                input_data.date,
+                input_data.service,
+                input_data.product,
+            ),
+        )
+        db.commit()
         entry = {
-            "id": entry_id,
+            "id": cursor.lastrowid,
             "kind": input_data.kind,
             "type": input_data.type,
             "description": input_data.description,
@@ -392,9 +453,17 @@ def entries() -> tuple[Any, int]:
             "service": input_data.service,
             "product": input_data.product,
         }
-        entry_store.insert(0, entry)
         return jsonify(entry), 201
-    return jsonify({"entries": entry_store}), 200
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT id, kind, type, description, amount, date, service, product
+        FROM entries
+        ORDER BY id DESC
+        """
+    ).fetchall()
+    entries_data = [dict(row) for row in rows]
+    return jsonify({"entries": entries_data}), 200
 
 
 @app.route("/api/inventory", methods=["GET", "POST"])
@@ -402,10 +471,25 @@ def inventory() -> tuple[Any, int]:
     if request.method == "POST":
         payload = request.get_json(silent=True) or {}
         input_data = parse_inventory_input(payload)
-        item_id = next(inventory_counter)
+        db = get_db()
+        cursor = db.execute(
+            """
+            INSERT INTO inventory (name, sku, category, quantity, cost, price)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                input_data.name,
+                input_data.sku,
+                input_data.category,
+                input_data.quantity,
+                round(input_data.cost, 2),
+                round(input_data.price, 2),
+            ),
+        )
+        db.commit()
         stock_value = input_data.quantity * input_data.cost
         item = {
-            "id": item_id,
+            "id": cursor.lastrowid,
             "name": input_data.name,
             "sku": input_data.sku,
             "category": input_data.category,
@@ -414,9 +498,18 @@ def inventory() -> tuple[Any, int]:
             "price": round(input_data.price, 2),
             "stock_value": round(stock_value, 2),
         }
-        inventory_store.insert(0, item)
         return jsonify(item), 201
-    return jsonify({"items": inventory_store}), 200
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT id, name, sku, category, quantity, cost, price,
+               (quantity * cost) AS stock_value
+        FROM inventory
+        ORDER BY id DESC
+        """
+    ).fetchall()
+    items = [dict(row) for row in rows]
+    return jsonify({"items": items}), 200
 
 
 @app.route("/api/compiled", methods=["GET"])
