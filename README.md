@@ -21,7 +21,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-O backend sobe em `http://localhost:8000`. Os dados são persistidos em `data.db`.
+O backend sobe em `http://localhost:8000`. Os dados são persistidos em `data.db` e separados por usuário.
 
 ## Executar o frontend
 
@@ -30,6 +30,8 @@ O frontend é servido pelo próprio Flask. Após iniciar o backend, acesse:
 ```
 http://localhost:8000
 ```
+
+Você será direcionado para a página de login. Caso ainda não tenha cadastro, use o link de criação de conta para registrar um novo usuário.
 
 ## Endpoints principais
 

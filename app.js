@@ -67,8 +67,19 @@ function App() {
     };
   }, [compiled]);
 
+  const handleUnauthorized = (response) => {
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return true;
+    }
+    return false;
+  };
+
   const fetchEntries = async () => {
     const response = await fetch("/api/entries");
+    if (handleUnauthorized(response)) {
+      return;
+    }
     const data = await response.json();
     if (response.ok) {
       setEntries(data.entries || []);
@@ -77,6 +88,9 @@ function App() {
 
   const fetchInventory = async () => {
     const response = await fetch("/api/inventory");
+    if (handleUnauthorized(response)) {
+      return;
+    }
     const data = await response.json();
     if (response.ok) {
       setInventory(data.items || []);
@@ -85,6 +99,9 @@ function App() {
 
   const fetchCompiled = async () => {
     const response = await fetch("/api/compiled");
+    if (handleUnauthorized(response)) {
+      return;
+    }
     const data = await response.json();
     if (response.ok) {
       setCompiled(data);
@@ -104,6 +121,9 @@ function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (handleUnauthorized(response)) {
+      return;
+    }
     const data = await response.json();
     if (!response.ok) {
       setError(data.error || "Erro ao salvar entrada.");
@@ -129,6 +149,9 @@ function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (handleUnauthorized(response)) {
+      return;
+    }
     const data = await response.json();
     if (!response.ok) {
       setError(data.error || "Erro ao salvar item.");
@@ -170,9 +193,21 @@ function App() {
               <strong>{formatCurrency(totals.inventoryValue)}</strong>
             </div>
           </div>
-          <button className="primary-button" type="button" onClick={refreshAll}>
-            Atualizar dados
-          </button>
+          <div className="hero-actions">
+            <button className="primary-button" type="button" onClick={refreshAll}>
+              Atualizar dados
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={async () => {
+                await fetch("/api/logout", { method: "POST" });
+                window.location.href = "/login";
+              }}
+            >
+              Sair
+            </button>
+          </div>
         </div>
       </header>
 

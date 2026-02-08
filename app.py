@@ -4,10 +4,20 @@ from dataclasses import dataclass
 import sqlite3
 from typing import Any
 
-from flask import Flask, g, jsonify, request, send_from_directory
+from flask import (
+    Flask,
+    g,
+    jsonify,
+    redirect,
+    request,
+    send_from_directory,
+    session,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
 DATABASE = "data.db"
+app.secret_key = "change-me"
 
 
 class ValidationError(ValueError):
@@ -58,6 +68,13 @@ class InventoryInput:
     quantity: int
     cost: float
     price: float
+
+
+@dataclass(frozen=True)
+class RegisterInput:
+    name: str
+    email: str
+    password: str
 
 
 def parse_float(value: Any, field: str) -> float:
@@ -176,6 +193,19 @@ def parse_inventory_input(payload: dict[str, Any]) -> InventoryInput:
     )
 
 
+def parse_register_input(payload: dict[str, Any]) -> RegisterInput:
+    name = str(payload.get("name", "")).strip()
+    email = str(payload.get("email", "")).strip().lower()
+    password = str(payload.get("password", "")).strip()
+    if not name:
+        raise ValidationError("Campo 'name' é obrigatório.")
+    if not email or "@" not in email:
+        raise ValidationError("Campo 'email' inválido.")
+    if len(password) < 6:
+        raise ValidationError("Campo 'password' precisa ter ao menos 6 caracteres.")
+    return RegisterInput(name=name, email=email, password=password)
+
+
 def project_values(value: float, growth_rate: float, months: int) -> list[float]:
     projections = []
     current = value
@@ -248,15 +278,28 @@ def init_db() -> None:
     cursor = db.cursor()
     cursor.execute(
         """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
             kind TEXT NOT NULL,
             type TEXT NOT NULL,
             description TEXT NOT NULL,
             amount REAL NOT NULL,
             date TEXT,
             service TEXT,
-            product TEXT
+            product TEXT,
+            FOREIGN KEY (user_id) REFERENCES users (id)
         )
         """
     )
@@ -264,12 +307,14 @@ def init_db() -> None:
         """
         CREATE TABLE IF NOT EXISTS inventory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             sku TEXT,
             category TEXT,
             quantity INTEGER NOT NULL,
             cost REAL NOT NULL,
-            price REAL NOT NULL
+            price REAL NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users (id)
         )
         """
     )
@@ -280,13 +325,28 @@ def init_db() -> None:
 init_db()
 
 
+def current_user_id() -> int | None:
+    user_id = session.get("user_id")
+    return int(user_id) if user_id is not None else None
+
+
+def require_user_id() -> int:
+    user_id = current_user_id()
+    if user_id is None:
+        raise ValidationError("Usuário não autenticado.")
+    return user_id
+
+
 def build_compiled_data() -> dict[str, Any]:
     db = get_db()
+    user_id = require_user_id()
     total_income = db.execute(
-        "SELECT COALESCE(SUM(amount), 0) FROM entries WHERE kind = 'income'"
+        "SELECT COALESCE(SUM(amount), 0) FROM entries WHERE kind = 'income' AND user_id = ?",
+        (user_id,),
     ).fetchone()[0]
     total_expense = db.execute(
-        "SELECT COALESCE(SUM(amount), 0) FROM entries WHERE kind = 'expense'"
+        "SELECT COALESCE(SUM(amount), 0) FROM entries WHERE kind = 'expense' AND user_id = ?",
+        (user_id,),
     ).fetchone()[0]
     net_result = total_income - total_expense
     margin = 0 if total_income == 0 else round((net_result / total_income) * 100, 2)
@@ -295,12 +355,20 @@ def build_compiled_data() -> dict[str, Any]:
     by_type = []
     for entry_type, label in type_map.items():
         income = db.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM entries WHERE type = ? AND kind = 'income'",
-            (entry_type,),
+            """
+            SELECT COALESCE(SUM(amount), 0)
+            FROM entries
+            WHERE type = ? AND kind = 'income' AND user_id = ?
+            """,
+            (entry_type, user_id),
         ).fetchone()[0]
         expense = db.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM entries WHERE type = ? AND kind = 'expense'",
-            (entry_type,),
+            """
+            SELECT COALESCE(SUM(amount), 0)
+            FROM entries
+            WHERE type = ? AND kind = 'expense' AND user_id = ?
+            """,
+            (entry_type, user_id),
         ).fetchone()[0]
         by_type.append(
             {
@@ -317,10 +385,11 @@ def build_compiled_data() -> dict[str, Any]:
             """
             SELECT service, SUM(amount) AS total
             FROM entries
-            WHERE kind = 'income' AND service IS NOT NULL AND service != ''
+            WHERE kind = 'income' AND service IS NOT NULL AND service != '' AND user_id = ?
             GROUP BY service
             ORDER BY total DESC
-            """
+            """,
+            (user_id,),
         ).fetchall()
     ]
     by_product = [
@@ -329,15 +398,17 @@ def build_compiled_data() -> dict[str, Any]:
             """
             SELECT product, SUM(amount) AS total
             FROM entries
-            WHERE kind = 'income' AND product IS NOT NULL AND product != ''
+            WHERE kind = 'income' AND product IS NOT NULL AND product != '' AND user_id = ?
             GROUP BY product
             ORDER BY total DESC
-            """
+            """,
+            (user_id,),
         ).fetchall()
     ]
 
     inventory_value = db.execute(
-        "SELECT COALESCE(SUM(quantity * cost), 0) FROM inventory"
+        "SELECT COALESCE(SUM(quantity * cost), 0) FROM inventory WHERE user_id = ?",
+        (user_id,),
     ).fetchone()[0]
 
     return {
@@ -354,7 +425,8 @@ def build_compiled_data() -> dict[str, Any]:
 
 @app.errorhandler(ValidationError)
 def handle_validation_error(error: ValidationError):
-    return jsonify({"error": str(error)}), 400
+    status = 401 if str(error) == "Usuário não autenticado." else 400
+    return jsonify({"error": str(error)}), status
 
 
 @app.route("/health", methods=["GET"])
@@ -364,7 +436,68 @@ def health() -> tuple[Any, int]:
 
 @app.route("/", methods=["GET"])
 def index() -> Any:
+    if current_user_id() is None:
+        return redirect("/login")
     return send_from_directory(".", "index.html")
+
+
+@app.route("/login", methods=["GET"])
+def login_page() -> Any:
+    if current_user_id() is not None:
+        return redirect("/")
+    return send_from_directory(".", "login.html")
+
+
+@app.route("/register", methods=["GET"])
+def register_page() -> Any:
+    if current_user_id() is not None:
+        return redirect("/")
+    return send_from_directory(".", "register.html")
+
+
+@app.route("/api/register", methods=["POST"])
+def register() -> tuple[Any, int]:
+    payload = request.get_json(silent=True) or {}
+    input_data = parse_register_input(payload)
+    db = get_db()
+    existing = db.execute(
+        "SELECT id FROM users WHERE email = ?",
+        (input_data.email,),
+    ).fetchone()
+    if existing is not None:
+        raise ValidationError("E-mail já cadastrado.")
+    password_hash = generate_password_hash(input_data.password)
+    cursor = db.execute(
+        "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+        (input_data.name, input_data.email, password_hash),
+    )
+    db.commit()
+    session["user_id"] = cursor.lastrowid
+    return jsonify({"id": cursor.lastrowid, "name": input_data.name}), 201
+
+
+@app.route("/api/login", methods=["POST"])
+def login() -> tuple[Any, int]:
+    payload = request.get_json(silent=True) or {}
+    email = str(payload.get("email", "")).strip().lower()
+    password = str(payload.get("password", "")).strip()
+    if not email or not password:
+        raise ValidationError("E-mail e senha são obrigatórios.")
+    db = get_db()
+    user = db.execute(
+        "SELECT id, password_hash, name FROM users WHERE email = ?",
+        (email,),
+    ).fetchone()
+    if user is None or not check_password_hash(user["password_hash"], password):
+        raise ValidationError("Credenciais inválidas.")
+    session["user_id"] = user["id"]
+    return jsonify({"id": user["id"], "name": user["name"]}), 200
+
+
+@app.route("/api/logout", methods=["POST"])
+def logout() -> tuple[Any, int]:
+    session.pop("user_id", None)
+    return jsonify({"status": "ok"}), 200
 
 
 @app.route("/<path:filename>", methods=["GET"])
@@ -423,16 +556,18 @@ def tax_estimate() -> tuple[Any, int]:
 
 @app.route("/api/entries", methods=["GET", "POST"])
 def entries() -> tuple[Any, int]:
+    user_id = require_user_id()
     if request.method == "POST":
         payload = request.get_json(silent=True) or {}
         input_data = parse_entry_input(payload)
         db = get_db()
         cursor = db.execute(
             """
-            INSERT INTO entries (kind, type, description, amount, date, service, product)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO entries (user_id, kind, type, description, amount, date, service, product)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                user_id,
                 input_data.kind,
                 input_data.type,
                 input_data.description,
@@ -459,8 +594,11 @@ def entries() -> tuple[Any, int]:
         """
         SELECT id, kind, type, description, amount, date, service, product
         FROM entries
+        WHERE user_id = ?
         ORDER BY id DESC
         """
+        ,
+        (user_id,),
     ).fetchall()
     entries_data = [dict(row) for row in rows]
     return jsonify({"entries": entries_data}), 200
@@ -468,16 +606,18 @@ def entries() -> tuple[Any, int]:
 
 @app.route("/api/inventory", methods=["GET", "POST"])
 def inventory() -> tuple[Any, int]:
+    user_id = require_user_id()
     if request.method == "POST":
         payload = request.get_json(silent=True) or {}
         input_data = parse_inventory_input(payload)
         db = get_db()
         cursor = db.execute(
             """
-            INSERT INTO inventory (name, sku, category, quantity, cost, price)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO inventory (user_id, name, sku, category, quantity, cost, price)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                user_id,
                 input_data.name,
                 input_data.sku,
                 input_data.category,
@@ -505,8 +645,11 @@ def inventory() -> tuple[Any, int]:
         SELECT id, name, sku, category, quantity, cost, price,
                (quantity * cost) AS stock_value
         FROM inventory
+        WHERE user_id = ?
         ORDER BY id DESC
         """
+        ,
+        (user_id,),
     ).fetchall()
     items = [dict(row) for row in rows]
     return jsonify({"items": items}), 200

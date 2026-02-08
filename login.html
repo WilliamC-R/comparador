@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Entrar | Comparador Financeiro</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="auth-page">
+      <div class="auth-card">
+        <h1>Bem-vindo de volta</h1>
+        <p>Entre para acessar seu painel financeiro.</p>
+        <form id="login-form">
+          <label>
+            E-mail
+            <input type="email" name="email" placeholder="voce@empresa.com" required />
+          </label>
+          <label>
+            Senha
+            <input type="password" name="password" placeholder="******" required />
+          </label>
+          <button class="primary-button" type="submit">Entrar</button>
+        </form>
+        <p class="auth-footer">
+          Não tem conta?
+          <a href="/register">Criar conta agora</a>
+        </p>
+      </div>
+    </div>
+    <script src="auth.js"></script>
+  </body>
+</html>

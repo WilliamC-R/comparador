@@ -93,6 +93,11 @@ h1 {
   font-size: 1.2rem;
 }
 
+.hero-actions {
+  display: grid;
+  gap: 12px;
+}
+
 .primary-button {
   border: none;
   background: var(--accent);
@@ -123,6 +128,49 @@ h1 {
 .secondary-button:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 40px 20px;
+  background: var(--bg);
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  background: var(--card);
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  display: grid;
+  gap: 16px;
+}
+
+.auth-card h1 {
+  font-size: 1.8rem;
+}
+
+.auth-card p {
+  color: var(--muted);
+}
+
+.auth-card form {
+  display: grid;
+  gap: 16px;
+}
+
+.auth-footer {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.auth-footer a {
+  color: var(--accent-dark);
+  font-weight: 600;
+  text-decoration: none;
 }
 
 .tabs {
